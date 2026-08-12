@@ -208,16 +208,28 @@ tr:last-child td {
   }
 }
 
+/* --- 修正・追加する部分 --- */
 .ml4 {
   position: relative;
   font-weight: 900;
-  font-size: 4.5em;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  text-align: center;
+  height: 120px; /* 文字が重なるための高さを確保 */
+  margin: 0 auto 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
+
 .ml4 .letters {
   position: absolute;
-  margin: auto;
+  top: 0;
   left: 0;
-  top: 0.3em;
   right: 0;
-  opacity: 0; 
+  bottom: 0;
+  margin: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0; /* 最初は非表示 */
 }
