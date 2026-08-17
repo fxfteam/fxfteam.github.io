@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VRM // mouse-track</title>
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --panel: #12151a;
+    --border: #262b33;
+    --text: #d4d8de;
+    --text-dim: #6b7280;
+    --accent: #5eead4;
+    --accent-dim: #1a3a35;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg);
+    font-family: 'SF Mono', 'JetBrains Mono', 'Consolas', 'Menlo', monospace;
+    color: var(--text);
+    overflow: hidden;
+  }
+  #canvas-holder {
+    position: fixed; inset: 0;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  .hud {
+    position: fixed;
+    z-index: 10;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+
+  #topbar {
+    top: 0; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    background: linear-gradient(to bottom, rgba(10,12,15,0.85), transparent);
+    pointer-events: none;
+  }
+  #topbar .brand {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  #topbar .brand::before { content: "● "; }
+  #topbar .status {
+    color: var(--text-dim);
+    pointer-events: auto;
+  }
+
+  #panel {
+    bottom: 14px; left: 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    width: 220px;
+    pointer-events: auto;
+  }
+  #panel .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 2px;
+  }
+  #panel .row + .row { border-top: 1px solid var(--border); }
+  #panel label { color: var(--text-dim); }
+  #panel input[type="range"] {
+    width: 110px; accent-color: var(--accent);
+  }
+  #panel .btns { display: flex; gap: 6px; margin-top: 8px; }
+  button {
+    font-family: inherit; font-size: 11px;
+    background: transparent; color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+  #dropzone {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 20;
+    background: var(--bg);
+    transition: opacity .25s ease;
+  }
+  #dropzone.hidden { opacity: 0; pointer-events: none; }
+  #dropbox {
+    width: min(420px, 86vw);
+    padding: 40px 24px;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    transition: border-color .15s, background .15s;
+  }
+  #dropbox.drag { border-color: var(--accent); background: var(--accent-dim); }
+  #dropbox h1 {
+    font-size: 13px; font-weight: 600; letter-spacing: .04em;
+    color: var(--text); margin: 0 0 6px;
+  }
+  #dropbox p {
+    font-size: 11px; color: var(--text-dim); margin: 0 0 18px; line-height: 1.6;
+  }
+  #dropbox .pick {
+    display: inline-block; border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 4px;
+    padding: 8px 16px; font-size: 11px; cursor: pointer;
+  }
+  #dropbox .pick:hover { background: var(--accent-dim); }
+  #dropbox .hint {
+    margin-top: 14px; font-size: 10px; color: var(--text-dim); opacity: .7;
+  }
+  #fileInput { display: none; }
+
+  #loading {
+    position: fixed; inset: 0; z-index: 25;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(10,12,15,0.9);
+    font-size: 11px; color: var(--accent);
+    letter-spacing: .05em;
+  }
+  #loading.show { display: flex; }
+
+  .cursor-dot {
+    position: fixed; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); opacity: 0.5; pointer-events: none; z-index: 15;
+    transform: translate(-50%, -50%);
+    transition: opacity .2s;
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-holder"></div>
+
+<div class="hud" id="topbar">
+  <div class="brand">vrm-tracker</div>
+  <div class="status" id="statusText">no model loaded</div>
+</div>
+
+<div class="hud" id="panel" style="display:none;">
+  <div class="row">
+    <label for="idleStrength">idle motion</label>
+    <input type="range" id="idleStrength" min="0" max="100" value="60">
+  </div>
+  <div class="row">
+    <label for="trackStrength">track strength</label>
+    <input type="range" id="trackStrength" min="0" max="100" value="80">
+  </div>
+  <div class="btns">
+    <button id="changeModelBtn">change model</button>
+    <button id="forgetBtn" class="danger">forget</button>
+  </div>
+</div>
+
+<div id="dropzone">
+  <div id="dropbox">
+    <h1>LOAD VRM MODEL</h1>
+    <p>ドラッグ&ドロップ、またはファイルを選択してください。<br>読み込んだモデルはブラウザ内に保存され、次回も自動で読み込まれます。</p>
+    <label class="pick" for="fileInput">SELECT .VRM FILE</label>
+    <input type="file" id="fileInput" accept=".vrm">
+    <div class="hint">全ての処理はブラウザ内で完結します。ファイルは外部送信されません。</div>
+  </div>
+</div>
+
+<div id="loading"><span id="loadingText">loading model…</span></div>
+<div class="cursor-dot" id="cursorDot"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://esm.sh/three@0.160.0",
+    "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://esm.sh/@pixiv/three-vrm@2.1.1?deps=three@0.160.0"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName, VRMExpressionPresetName } from '@pixiv/three-vrm';
+
+// ---------- storage (IndexedDB) ----------
+// 補足: VRMファイルは通常 数MB〜数十MBあり、Cookieの容量上限(4KB程度)には
+// 収まらないため、同じ「ブラウザに保存して次回も自動読込」という目的を
+// IndexedDBで実現しています。挙動としてはCookie保存と同じ体験です。
+const DB_NAME = 'vrm-tracker-db';
+const STORE = 'files';
+const KEY = 'last-vrm';
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function saveModel(arrayBuffer, name) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put({ data: arrayBuffer, name }, KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function loadModel() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).get(KEY);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function clearModel() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// ---------- three.js setup ----------
+const holder = document.getElementById('canvas-holder');
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(28, window.innerWidth / window.innerHeight, 0.1, 20);
+camera.position.set(0, 1.35, 1.6);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000000, 0);
+holder.appendChild(renderer.domElement);
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+keyLight.position.set(0.6, 1.6, 1.2);
+scene.add(keyLight);
+const fillLight = new THREE.AmbientLight(0xaab4c0, 0.7);
+scene.add(fillLight);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------- loader ----------
+const loader = new GLTFLoader();
+loader.register((parser) => new VRMLoaderPlugin(parser));
+
+let currentVrm = null;
+let lookAtTarget = new THREE.Object3D();
+scene.add(lookAtTarget);
+
+async function loadVrmFromArrayBuffer(arrayBuffer) {
+  setLoading(true);
+  return new Promise((resolve, reject) => {
+    loader.parse(
+      arrayBuffer,
+      '',
+      (gltf) => {
+        const vrm = gltf.userData.vrm;
+
+        if (currentVrm) {
+          scene.remove(currentVrm.scene);
+          VRMUtils.deepDispose(currentVrm.scene);
+        }
+
+        VRMUtils.rotateVRM0(vrm); // VRM0系の向き補正(VRM1なら無害)
+        VRMUtils.removeUnnecessaryVertices(vrm.scene);
+        VRMUtils.combineSkeletons(vrm.scene);
+
+        scene.add(vrm.scene);
+        currentVrm = vrm;
+
+        // カメラをモデルの頭付近にフォーカス
+        const head = vrm.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Head);
+        if (head) {
+          const headPos = new THREE.Vector3();
+          head.getWorldPosition(headPos);
+          camera.position.set(0, headPos.y - 0.05, 1.5);
+          camera.lookAt(0, headPos.y - 0.1, 0);
+          lookAtTarget.position.set(0, headPos.y, 3);
+        }
+
+        if (vrm.lookAt) {
+          vrm.lookAt.target = lookAtTarget;
+        }
+
+        setLoading(false);
+        resolve(vrm);
+      },
+      (err) => { setLoading(false); reject(err); }
+    );
+  });
+}
+
+function setLoading(on) {
+  document.getElementById('loading').classList.toggle('show', on);
+}
+
+// ---------- UI wiring ----------
+const dropzone = document.getElementById('dropzone');
+const dropbox = document.getElementById('dropbox');
+const fileInput = document.getElementById('fileInput');
+const panel = document.getElementById('panel');
+const statusText = document.getElementById('statusText');
+
+function showViewerUI(name) {
+  dropzone.classList.add('hidden');
+  panel.style.display = 'block';
+  statusText.textContent = name ? `loaded: ${name}` : 'model loaded';
+}
+function showDropUI() {
+  dropzone.classList.remove('hidden');
+  panel.style.display = 'none';
+  statusText.textContent = 'no model loaded';
+}
+
+async function handleFile(file) {
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  try {
+    await loadVrmFromArrayBuffer(buf);
+    await saveModel(buf, file.name);
+    showViewerUI(file.name);
+  } catch (e) {
+    console.error(e);
+    statusText.textContent = 'load failed — see console';
+  }
+}
+
+fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+['dragenter', 'dragover'].forEach(evt =>
+  dropbox.addEventListener(evt, (e) => { e.preventDefault(); dropbox.classList.add('drag'); })
+);
+['dragleave', 'drop'].forEach(evt =>
+  dropbox.addEventListener(evt, (e) => { e.preventDefault(); dropbox.classList.remove('drag'); })
+);
+dropbox.addEventListener('drop', (e) => {
+  const file = [...(e.dataTransfer.files || [])].find(f => f.name.toLowerCase().endsWith('.vrm'));
+  if (file) handleFile(file);
+});
+
+document.getElementById('changeModelBtn').addEventListener('click', () => showDropUI());
+document.getElementById('forgetBtn').addEventListener('click', async () => {
+  await clearModel();
+  if (currentVrm) {
+    scene.remove(currentVrm.scene);
+    VRMUtils.deepDispose(currentVrm.scene);
+    currentVrm = null;
+  }
+  showDropUI();
+});
+
+// auto-load persisted model
+(async () => {
+  try {
+    const saved = await loadModel();
+    if (saved) {
+      await loadVrmFromArrayBuffer(saved.data);
+      showViewerUI(saved.name);
+    }
+  } catch (e) {
+    console.warn('自動読込に失敗しました', e);
+  }
+})();
+
+// ---------- mouse tracking ----------
+const mouse = { x: 0, y: 0 };       // raw normalized -1..1
+const mouseSmooth = { x: 0, y: 0 }; // damped
+
+window.addEventListener('mousemove', (e) => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  const dot = document.getElementById('cursorDot');
+  dot.style.left = e.clientX + 'px';
+  dot.style.top = e.clientY + 'px';
+});
+
+// controls
+const idleStrengthEl = document.getElementById('idleStrength');
+const trackStrengthEl = document.getElementById('trackStrength');
+let idleStrength = 0.6;
+let trackStrength = 0.8;
+idleStrengthEl.addEventListener('input', () => idleStrength = idleStrengthEl.value / 100);
+trackStrengthEl.addEventListener('input', () => trackStrength = trackStrengthEl.value / 100);
+
+// blink scheduling
+let nextBlinkAt = performance.now() + 2000 + Math.random() * 3000;
+let blinkPhase = 0; // 0..1 progress of a blink, -1 = not blinking
+
+// ---------- animation loop ----------
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  const t = clock.getElapsedTime();
+
+  // damp mouse
+  mouseSmooth.x += (mouse.x - mouseSmooth.x) * Math.min(1, delta * 6);
+  mouseSmooth.y += (mouse.y - mouseSmooth.y) * Math.min(1, delta * 6);
+
+  if (currentVrm) {
+    const humanoid = currentVrm.humanoid;
+
+    // 1. lookAt target follows the mouse in front of the face
+    const headNode = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Head);
+    if (headNode) {
+      const headPos = new THREE.Vector3();
+      headNode.getWorldPosition(headPos);
+      const targetX = headPos.x + mouseSmooth.x * 0.6 * trackStrength;
+      const targetY = headPos.y + mouseSmooth.y * 0.35 * trackStrength + 0.02;
+      lookAtTarget.position.set(targetX, targetY, headPos.z + 2.5);
+    }
+
+    // 2. subtle head/neck rotation on top of the eye lookAt (very small, natural range)
+    const neck = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Neck);
+    if (neck) {
+      const targetYaw = mouseSmooth.x * 0.18 * trackStrength;
+      const targetPitch = -mouseSmooth.y * 0.12 * trackStrength;
+      neck.rotation.y += (targetYaw - neck.rotation.y) * Math.min(1, delta * 5);
+      neck.rotation.x += (targetPitch - neck.rotation.x) * Math.min(1, delta * 5);
+    }
+
+    // 3. upper body twist toward cursor (chest/spine), subtler than the neck
+    const chest = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Chest)
+      || humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Spine);
+    if (chest) {
+      const twist = mouseSmooth.x * 0.06 * trackStrength;
+      chest.rotation.y += (twist - chest.rotation.y) * Math.min(1, delta * 3);
+    }
+
+    // 4. breathing idle animation (chest scale + shoulders)
+    if (chest) {
+      const breathe = Math.sin(t * 1.1) * 0.015 * idleStrength;
+      chest.scale.set(1 + breathe * 0.5, 1 + breathe, 1 + breathe * 0.5);
+    }
+    const spine = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Spine);
+    if (spine) {
+      spine.rotation.z = Math.sin(t * 1.1 + 1.2) * 0.01 * idleStrength;
+    }
+
+    // 5. gentle idle sway (weight shift) via hips
+    const hips = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Hips);
+    if (hips) {
+      hips.rotation.z = Math.sin(t * 0.6) * 0.008 * idleStrength;
+    }
+
+    // 6. blinking
+    const expr = currentVrm.expressionManager;
+    if (expr) {
+      const now = performance.now();
+      if (blinkPhase < 0 && now > nextBlinkAt) {
+        blinkPhase = 0;
+      }
+      if (blinkPhase >= 0) {
+        blinkPhase += delta / 0.12; // ~120ms blink
+        const v = blinkPhase <= 1
+          ? Math.sin(Math.min(blinkPhase, 1) * Math.PI)
+          : 0;
+        expr.setValue(VRMExpressionPresetName.Blink, v);
+        if (blinkPhase >= 1) {
+          blinkPhase = -1;
+          nextBlinkAt = now + 2000 + Math.random() * 4000;
+        }
+      }
+    }
+
+    currentVrm.update(delta);
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
