@@ -278,9 +278,17 @@ async function loadVrmFromArrayBuffer(arrayBuffer) {
           VRMUtils.deepDispose(currentVrm.scene);
         }
 
-        VRMUtils.rotateVRM0(vrm); // VRM0系の向き補正(VRM1なら無害)
-        VRMUtils.removeUnnecessaryVertices(vrm.scene);
-        VRMUtils.combineSkeletons(vrm.scene);
+        // これらはパフォーマンス最適化用のオプション関数。
+        // CDN経由のビルドによっては未提供の場合があるため存在チェックしてから呼ぶ。
+        if (typeof VRMUtils.rotateVRM0 === 'function') {
+          VRMUtils.rotateVRM0(vrm); // VRM0系の向き補正(VRM1なら無害)
+        }
+        if (typeof VRMUtils.removeUnnecessaryVertices === 'function') {
+          VRMUtils.removeUnnecessaryVertices(vrm.scene);
+        }
+        if (typeof VRMUtils.combineSkeletons === 'function') {
+          VRMUtils.combineSkeletons(vrm.scene);
+        }
 
         scene.add(vrm.scene);
         currentVrm = vrm;
