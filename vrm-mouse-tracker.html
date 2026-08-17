@@ -292,6 +292,7 @@ async function loadVrmFromArrayBuffer(arrayBuffer) {
 
         scene.add(vrm.scene);
         currentVrm = vrm;
+        applyNaturalPose(vrm);
 
         // カメラをモデルの頭付近にフォーカス
         const head = vrm.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Head);
@@ -313,6 +314,24 @@ async function loadVrmFromArrayBuffer(arrayBuffer) {
       (err) => { setLoading(false); reject(err); }
     );
   });
+}
+
+// VRMはロード直後はTポーズ(腕を真横に伸ばした状態)になっているため、
+// 腕を自然に下ろした立ちポーズへ補正する。
+function applyNaturalPose(vrm) {
+  const humanoid = vrm.humanoid;
+  if (!humanoid) return;
+
+  const leftUpperArm = humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftUpperArm);
+  const rightUpperArm = humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightUpperArm);
+  const leftLowerArm = humanoid.getNormalizedBoneNode(VRMHumanBoneName.LeftLowerArm);
+  const rightLowerArm = humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightLowerArm);
+
+  // 数値(ラジアン)は見た目に応じて調整可。z軸回転で腕を体側へ下ろす。
+  if (leftUpperArm) leftUpperArm.rotation.z = 1.15;
+  if (rightUpperArm) rightUpperArm.rotation.z = -1.15;
+  if (leftLowerArm) leftLowerArm.rotation.z = 0.15;
+  if (rightLowerArm) rightLowerArm.rotation.z = -0.15;
 }
 
 function setLoading(on) {
