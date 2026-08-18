@@ -24,9 +24,87 @@
     overflow: hidden;
   }
   #canvas-holder {
-    position: fixed; inset: 0;
+    position: fixed; inset: 0; z-index: 5;
   }
   canvas { display: block; width: 100%; height: 100%; }
+
+  #bgLayer {
+    position: fixed; inset: 0; z-index: 0;
+    background-color: transparent;
+    background-position: center; background-repeat: no-repeat;
+  }
+  #imgLayerBack, #imgLayerFront {
+    position: fixed; inset: 0; pointer-events: none;
+  }
+  #imgLayerBack { z-index: 2; }
+  #imgLayerFront { z-index: 8; }
+  .overlay-img {
+    position: absolute;
+    max-width: 40vw; max-height: 40vh;
+    cursor: grab;
+    pointer-events: auto;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .overlay-img.dragging { cursor: grabbing; opacity: 0.85; }
+
+  #bgPanel {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: 250px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    z-index: 30;
+    display: none;
+    flex-direction: column;
+    transform: translateX(-100%);
+    transition: transform .18s ease;
+  }
+  #bgPanel.open { display: flex; transform: translateX(0); }
+  #bgPanel .bp-header { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 11px; }
+  #bgPanel .bp-title { color: var(--accent); font-weight: 600; letter-spacing: .04em; }
+  #bgPanel .bp-hint { color: var(--text-dim); margin-top: 4px; font-size: 10px; line-height: 1.6; }
+  #bgPanel .bp-body { flex: 1; overflow-y: auto; padding: 10px 12px 16px; }
+  #bgPanel .bp-section-title {
+    font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: .06em; margin: 14px 0 6px;
+  }
+  #bgPanel .bp-section-title:first-child { margin-top: 0; }
+  #bgPanel .bp-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 11px; }
+  #bgPanel .bp-types { display: flex; gap: 4px; }
+  #bgPanel .bp-type-btn {
+    flex: 1; font-size: 10px; padding: 6px 4px; text-align: center;
+    border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim);
+    cursor: pointer; background: transparent; font-family: inherit;
+  }
+  #bgPanel .bp-type-btn:hover { border-color: var(--accent); color: var(--accent); }
+  #bgPanel .bp-type-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  #bgPanel input[type="color"] {
+    width: 100%; height: 26px; border: 1px solid var(--border); border-radius: 4px;
+    background: transparent; padding: 2px;
+  }
+  #bgPanel select {
+    font-family: inherit; font-size: 11px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px; padding: 4px;
+  }
+  #bgPanel .bp-add-btn {
+    width: 100%; margin-top: 4px; font-size: 11px; padding: 8px;
+    border: 1px dashed var(--border); border-radius: 4px; color: var(--text-dim);
+    cursor: pointer; background: transparent; font-family: inherit;
+  }
+  #bgPanel .bp-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .layer-row {
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 8px; margin-top: 6px; font-size: 10px;
+  }
+  .layer-row .lr-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .layer-row .lr-name { color: var(--text-dim); }
+  .layer-row .lr-btns { display: flex; gap: 4px; }
+  .layer-row .lr-btns button {
+    font-size: 9px; padding: 3px 5px;
+  }
+  .layer-row .lr-slider-row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .layer-row .lr-slider-row label { width: 34px; color: var(--text-dim); }
+  .layer-row input[type="range"] { flex: 1; accent-color: var(--accent); }
 
   .hud {
     position: fixed;
@@ -213,7 +291,49 @@
 </head>
 <body>
 
+<div id="bgLayer"></div>
+<div id="imgLayerBack"></div>
 <div id="canvas-holder"></div>
+<div id="imgLayerFront"></div>
+
+<div id="bgPanel">
+  <div class="bp-header">
+    <div class="bp-title">BACKGROUND &amp; LAYERS</div>
+    <div class="bp-hint">画像はドラッグで移動できます<br>B / Esc: 閉じる</div>
+  </div>
+  <div class="bp-body">
+    <div class="bp-section-title">Background</div>
+    <div class="bp-types" id="bgTypeBtns">
+      <button type="button" class="bp-type-btn" data-type="none">None</button>
+      <button type="button" class="bp-type-btn" data-type="color">Color</button>
+      <button type="button" class="bp-type-btn" data-type="image">Image</button>
+    </div>
+    <div class="bp-row" id="bgColorRow" style="display:none;">
+      <input type="color" id="bgColorInput" value="#101216">
+    </div>
+    <div id="bgImageRow" style="display:none;">
+      <button type="button" class="bp-add-btn" id="bgImagePickBtn">SELECT BACKGROUND IMAGE</button>
+      <input type="file" id="bgImageInput" accept="image/*" style="display:none;">
+      <div class="bp-row">
+        <label>fit</label>
+        <select id="bgFitSelect">
+          <option value="cover">cover</option>
+          <option value="contain">contain</option>
+          <option value="repeat">repeat</option>
+        </select>
+      </div>
+      <div class="bp-row">
+        <label>blur</label>
+        <input type="range" id="bgBlurInput" min="0" max="20" value="0" style="width:130px;">
+      </div>
+    </div>
+
+    <div class="bp-section-title">Image Layers</div>
+    <button type="button" class="bp-add-btn" id="addLayerBtn">+ ADD IMAGE</button>
+    <input type="file" id="layerImageInput" accept="image/*" style="display:none;">
+    <div id="layerList"></div>
+  </div>
+</div>
 
 <div class="hud" id="topbar">
   <div class="brand">vrm-tracker</div>
@@ -234,7 +354,8 @@
     <button id="forgetBtn" class="danger">forget</button>
   </div>
   <div style="margin-top:8px; font-size:10px; color:var(--text-dim); line-height:1.6;">
-    P: pose editor &nbsp;/&nbsp; 1-9: apply pose &nbsp;/&nbsp; 0: clear pose
+    P: pose editor &nbsp;/&nbsp; 1-9: apply pose &nbsp;/&nbsp; 0: clear pose<br>
+    B: background &amp; layers
   </div>
 </div>
 
@@ -284,17 +405,37 @@ import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName, VRMExpressionPresetName } 
 const DB_NAME = 'vrm-tracker-db';
 const STORE = 'files';
 const POSE_STORE = 'poses';
+const SETTINGS_STORE = 'settings';
 const KEY = 'last-vrm';
 
 function openDb() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
+    const req = indexedDB.open(DB_NAME, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
       if (!db.objectStoreNames.contains(POSE_STORE)) db.createObjectStore(POSE_STORE);
+      if (!db.objectStoreNames.contains(SETTINGS_STORE)) db.createObjectStore(SETTINGS_STORE);
     };
     req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function saveSetting(key, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
+    tx.objectStore(SETTINGS_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function loadSetting(key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SETTINGS_STORE, 'readonly');
+    const req = tx.objectStore(SETTINGS_STORE).get(key);
+    req.onsuccess = () => resolve(req.result ?? null);
     req.onerror = () => reject(req.error);
   });
 }
@@ -804,7 +945,7 @@ document.getElementById('forgetBtn').addEventListener('click', async () => {
 // ---------- click to hide UI + cursor ----------
 window.addEventListener('click', (e) => {
   // パネルやドロップゾーンなど操作系UI上のクリックはトグル対象外
-  if (e.target.closest('#panel, #topbar, #dropzone, #loading, #poseEditor')) return;
+  if (e.target.closest('#panel, #topbar, #dropzone, #loading, #poseEditor, #bgPanel, .overlay-img')) return;
   document.body.classList.toggle('ui-hidden');
 });
 // 万一操作不能になった場合の保険としてEscでも復帰できるようにする
@@ -822,6 +963,291 @@ window.addEventListener('keydown', (e) => {
     }
   } catch (e) {
     console.warn('自動読込に失敗しました', e);
+  }
+})();
+
+// ---------- background & image layers ----------
+let bgSettings = { type: 'none', color: '#101216', imageData: null, fit: 'cover', blur: 0 };
+let layers = []; // { id, dataUrl, xPct, yPct, scale, rotation, front }
+let layerIdSeq = 1;
+let bgPanelOpen = false;
+
+const bgLayerEl = document.getElementById('bgLayer');
+const imgLayerBackEl = document.getElementById('imgLayerBack');
+const imgLayerFrontEl = document.getElementById('imgLayerFront');
+const bgPanelEl = document.getElementById('bgPanel');
+
+function applyBackgroundCSS() {
+  bgLayerEl.style.filter = bgSettings.blur > 0 ? `blur(${bgSettings.blur}px)` : 'none';
+  if (bgSettings.type === 'color') {
+    bgLayerEl.style.backgroundColor = bgSettings.color;
+    bgLayerEl.style.backgroundImage = 'none';
+  } else if (bgSettings.type === 'image' && bgSettings.imageData) {
+    bgLayerEl.style.backgroundColor = 'transparent';
+    bgLayerEl.style.backgroundImage = `url(${bgSettings.imageData})`;
+    if (bgSettings.fit === 'repeat') {
+      bgLayerEl.style.backgroundSize = 'auto';
+      bgLayerEl.style.backgroundRepeat = 'repeat';
+    } else {
+      bgLayerEl.style.backgroundSize = bgSettings.fit;
+      bgLayerEl.style.backgroundRepeat = 'no-repeat';
+    }
+  } else {
+    bgLayerEl.style.backgroundColor = 'transparent';
+    bgLayerEl.style.backgroundImage = 'none';
+  }
+}
+
+function refreshBgTypeButtons() {
+  document.querySelectorAll('#bgTypeBtns .bp-type-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.type === bgSettings.type);
+  });
+  document.getElementById('bgColorRow').style.display = bgSettings.type === 'color' ? 'flex' : 'none';
+  document.getElementById('bgImageRow').style.display = bgSettings.type === 'image' ? 'block' : 'none';
+}
+
+document.querySelectorAll('#bgTypeBtns .bp-type-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    bgSettings.type = btn.dataset.type;
+    refreshBgTypeButtons();
+    applyBackgroundCSS();
+    saveSetting('background', bgSettings).catch(() => {});
+  });
+});
+document.getElementById('bgColorInput').addEventListener('input', (e) => {
+  bgSettings.color = e.target.value;
+  applyBackgroundCSS();
+  saveSetting('background', bgSettings).catch(() => {});
+});
+document.getElementById('bgFitSelect').addEventListener('change', (e) => {
+  bgSettings.fit = e.target.value;
+  applyBackgroundCSS();
+  saveSetting('background', bgSettings).catch(() => {});
+});
+document.getElementById('bgBlurInput').addEventListener('input', (e) => {
+  bgSettings.blur = Number(e.target.value);
+  applyBackgroundCSS();
+  saveSetting('background', bgSettings).catch(() => {});
+});
+document.getElementById('bgImagePickBtn').addEventListener('click', () => {
+  document.getElementById('bgImageInput').click();
+});
+document.getElementById('bgImageInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  bgSettings.imageData = await fileToDataUrl(file);
+  applyBackgroundCSS();
+  saveSetting('background', bgSettings).catch(() => {});
+});
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---- image layers (draggable overlay images) ----
+function createLayerElement(layer) {
+  const img = document.createElement('img');
+  img.className = 'overlay-img';
+  img.src = layer.dataUrl;
+  img.draggable = false;
+  img.style.left = `${layer.xPct}%`;
+  img.style.top = `${layer.yPct}%`;
+  img.style.transform = `translate(-50%, -50%) scale(${layer.scale}) rotate(${layer.rotation}deg)`;
+
+  let dragging = false, startX = 0, startY = 0, startXPct = 0, startYPct = 0;
+  img.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    img.classList.add('dragging');
+    img.setPointerCapture(e.pointerId);
+    startX = e.clientX; startY = e.clientY;
+    startXPct = layer.xPct; startYPct = layer.yPct;
+  });
+  img.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dxPct = ((e.clientX - startX) / window.innerWidth) * 100;
+    const dyPct = ((e.clientY - startY) / window.innerHeight) * 100;
+    layer.xPct = Math.min(100, Math.max(0, startXPct + dxPct));
+    layer.yPct = Math.min(100, Math.max(0, startYPct + dyPct));
+    img.style.left = `${layer.xPct}%`;
+    img.style.top = `${layer.yPct}%`;
+  });
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    img.classList.remove('dragging');
+    persistLayers();
+  };
+  img.addEventListener('pointerup', endDrag);
+  img.addEventListener('pointercancel', endDrag);
+
+  layer.el = img;
+  return img;
+}
+
+function mountLayer(layer) {
+  const el = createLayerElement(layer);
+  (layer.front ? imgLayerFrontEl : imgLayerBackEl).appendChild(el);
+}
+
+function rebuildLayerElements() {
+  imgLayerBackEl.innerHTML = '';
+  imgLayerFrontEl.innerHTML = '';
+  for (const layer of layers) mountLayer(layer);
+}
+
+function updateLayerTransform(layer) {
+  if (layer.el) {
+    layer.el.style.transform = `translate(-50%, -50%) scale(${layer.scale}) rotate(${layer.rotation}deg)`;
+  }
+}
+
+function persistLayers() {
+  const serializable = layers.map(({ el, ...rest }) => rest);
+  saveSetting('layers', serializable).catch(() => {});
+}
+
+function renderLayerList() {
+  const list = document.getElementById('layerList');
+  list.innerHTML = '';
+  layers.forEach((layer, idx) => {
+    const row = document.createElement('div');
+    row.className = 'layer-row';
+
+    const top = document.createElement('div');
+    top.className = 'lr-top';
+    const name = document.createElement('span');
+    name.className = 'lr-name';
+    name.textContent = `image ${idx + 1}${layer.front ? ' (front)' : ' (back)'}`;
+    const btns = document.createElement('div');
+    btns.className = 'lr-btns';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.textContent = layer.front ? 'send back' : 'bring front';
+    toggleBtn.addEventListener('click', () => {
+      layer.front = !layer.front;
+      layer.el?.remove();
+      mountLayer(layer);
+      renderLayerList();
+      persistLayers();
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'danger';
+    delBtn.textContent = 'delete';
+    delBtn.addEventListener('click', () => {
+      layer.el?.remove();
+      layers = layers.filter(l => l.id !== layer.id);
+      renderLayerList();
+      persistLayers();
+    });
+
+    btns.appendChild(toggleBtn);
+    btns.appendChild(delBtn);
+    top.appendChild(name);
+    top.appendChild(btns);
+    row.appendChild(top);
+
+    const scaleRow = document.createElement('div');
+    scaleRow.className = 'lr-slider-row';
+    const scaleLabel = document.createElement('label');
+    scaleLabel.textContent = 'scale';
+    const scaleInput = document.createElement('input');
+    scaleInput.type = 'range'; scaleInput.min = 20; scaleInput.max = 300; scaleInput.value = Math.round(layer.scale * 100);
+    scaleInput.addEventListener('input', () => {
+      layer.scale = Number(scaleInput.value) / 100;
+      updateLayerTransform(layer);
+    });
+    scaleInput.addEventListener('change', persistLayers);
+    scaleRow.appendChild(scaleLabel);
+    scaleRow.appendChild(scaleInput);
+    row.appendChild(scaleRow);
+
+    const rotRow = document.createElement('div');
+    rotRow.className = 'lr-slider-row';
+    const rotLabel = document.createElement('label');
+    rotLabel.textContent = 'rotate';
+    const rotInput = document.createElement('input');
+    rotInput.type = 'range'; rotInput.min = -180; rotInput.max = 180; rotInput.value = layer.rotation;
+    rotInput.addEventListener('input', () => {
+      layer.rotation = Number(rotInput.value);
+      updateLayerTransform(layer);
+    });
+    rotInput.addEventListener('change', persistLayers);
+    rotRow.appendChild(rotLabel);
+    rotRow.appendChild(rotInput);
+    row.appendChild(rotRow);
+
+    list.appendChild(row);
+  });
+}
+
+document.getElementById('addLayerBtn').addEventListener('click', () => {
+  document.getElementById('layerImageInput').click();
+});
+document.getElementById('layerImageInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const dataUrl = await fileToDataUrl(file);
+  const layer = { id: layerIdSeq++, dataUrl, xPct: 50, yPct: 50, scale: 1, rotation: 0, front: false };
+  layers.push(layer);
+  mountLayer(layer);
+  renderLayerList();
+  persistLayers();
+  e.target.value = '';
+});
+
+function openBgPanel() {
+  bgPanelOpen = true;
+  bgPanelEl.classList.add('open');
+}
+function closeBgPanel() {
+  bgPanelOpen = false;
+  bgPanelEl.classList.remove('open');
+}
+function toggleBgPanel() {
+  if (bgPanelOpen) closeBgPanel(); else openBgPanel();
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'b' || e.key === 'B') {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT') return;
+    toggleBgPanel();
+    return;
+  }
+  if (e.key === 'Escape' && bgPanelOpen) closeBgPanel();
+});
+
+// 保存済みの背景・レイヤー設定を復元
+(async () => {
+  try {
+    const savedBg = await loadSetting('background');
+    if (savedBg) {
+      bgSettings = savedBg;
+      refreshBgTypeButtons();
+      document.getElementById('bgColorInput').value = bgSettings.color || '#101216';
+      document.getElementById('bgFitSelect').value = bgSettings.fit || 'cover';
+      document.getElementById('bgBlurInput').value = bgSettings.blur || 0;
+      applyBackgroundCSS();
+    } else {
+      refreshBgTypeButtons();
+    }
+    const savedLayers = await loadSetting('layers');
+    if (savedLayers && Array.isArray(savedLayers)) {
+      layerIdSeq = savedLayers.reduce((max, l) => Math.max(max, l.id), 0) + 1;
+      layers = savedLayers;
+      rebuildLayerElements();
+      renderLayerList();
+    }
+  } catch (e) {
+    console.warn('背景・レイヤー設定の読込に失敗しました', e);
   }
 })();
 
