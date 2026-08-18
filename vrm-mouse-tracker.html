@@ -133,6 +133,17 @@
     transform: translate(-50%, -50%);
     transition: opacity .2s;
   }
+
+  body.ui-hidden .hud { opacity: 0; pointer-events: none; }
+  body.ui-hidden .cursor-dot { opacity: 0; }
+  body.ui-hidden { cursor: none; }
+  #hiddenHint {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; color: var(--text-dim); opacity: 0;
+    pointer-events: none; z-index: 10; letter-spacing: .04em;
+    transition: opacity .2s;
+  }
+  body.ui-hidden #hiddenHint { opacity: 0.55; }
 </style>
 </head>
 <body>
@@ -171,6 +182,7 @@
 
 <div id="loading"><span id="loadingText">loading model…</span></div>
 <div class="cursor-dot" id="cursorDot"></div>
+<div id="hiddenHint">click to show UI</div>
 
 <script type="importmap">
 {
@@ -391,6 +403,17 @@ document.getElementById('forgetBtn').addEventListener('click', async () => {
     currentVrm = null;
   }
   showDropUI();
+});
+
+// ---------- click to hide UI + cursor ----------
+window.addEventListener('click', (e) => {
+  // パネルやドロップゾーンなど操作系UI上のクリックはトグル対象外
+  if (e.target.closest('#panel, #topbar, #dropzone, #loading')) return;
+  document.body.classList.toggle('ui-hidden');
+});
+// 万一操作不能になった場合の保険としてEscでも復帰できるようにする
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.body.classList.remove('ui-hidden');
 });
 
 // auto-load persisted model
