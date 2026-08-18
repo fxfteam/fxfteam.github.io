@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TERMINAL // DECKS</title>
+<style>
+:root{
+  --bg:#080a08;
+  --panel:#10140e;
+  --panel-2:#161c11;
+  --line:#28331f;
+  --line-bright:#3a4a2c;
+  --text:#c9d4c0;
+  --text-dim:#66735d;
+  --deck-a:#5ad1ff;
+  --deck-a-glow:rgba(90,209,255,.55);
+  --deck-b:#ff9f1c;
+  --deck-b-glow:rgba(255,159,28,.55);
+  --danger:#ff4d5e;
+  --ok:#7dffa1;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", "Cascadia Mono", Consolas, monospace;
+}
+*{box-sizing:border-box;}
+html,body{
+  margin:0; height:100%; background:var(--bg); color:var(--text);
+  font-family:var(--mono); letter-spacing:.02em; overflow-x:hidden;
+  -webkit-tap-highlight-color:transparent; user-select:none;
+}
+body{
+  background-image:
+    radial-gradient(ellipse at 50% -10%, rgba(90,209,255,.05), transparent 60%),
+    radial-gradient(ellipse at 50% 110%, rgba(255,159,28,.05), transparent 60%);
+}
+.scanlines{
+  position:fixed; inset:0; pointer-events:none; z-index:50; opacity:.05;
+  background:repeating-linear-gradient(0deg, #fff 0px, #fff 1px, transparent 1px, transparent 3px);
+  mix-blend-mode:overlay;
+}
+.crt-vignette{
+  position:fixed; inset:0; pointer-events:none; z-index:49;
+  box-shadow: inset 0 0 180px rgba(0,0,0,.75);
+}
+
+/* ---------- header ---------- */
+header{
+  padding:14px 18px 10px; display:flex; align-items:baseline; justify-content:space-between;
+  border-bottom:1px solid var(--line); flex-wrap:wrap; gap:8px;
+}
+.logo{
+  font-size:15px; font-weight:700; letter-spacing:.18em; color:var(--text);
+}
+.logo span{color:var(--text-dim); font-weight:400;}
+.logo::before{content:"▌"; color:var(--deck-a); margin-right:8px; text-shadow:0 0 8px var(--deck-a-glow);}
+.status-line{font-size:10px; color:var(--text-dim); letter-spacing:.1em;}
+.status-line b{color:var(--ok); font-weight:400;}
+
+/* ---------- layout ---------- */
+main{
+  max-width:1180px; margin:0 auto; padding:18px 16px 60px;
+  display:grid; grid-template-columns:1fr 220px 1fr; gap:14px;
+}
+@media (max-width:880px){
+  main{grid-template-columns:1fr; }
+  .mixer-center{order:3;}
+  .deck[data-deck="B"]{order:2;}
+}
+
+.deck{
+  background:linear-gradient(180deg, var(--panel), var(--panel-2));
+  border:1px solid var(--line); border-radius:6px; padding:14px;
+  display:flex; flex-direction:column; gap:12px; position:relative;
+  transition:box-shadow .2s, border-color .2s;
+}
+.deck.drag-over{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 0 24px var(--accent-glow) inset;}
+.deck[data-deck="A"]{--accent:var(--deck-a); --accent-glow:var(--deck-a-glow);}
+.deck[data-deck="B"]{--accent:var(--deck-b); --accent-glow:var(--deck-b-glow);}
+
+.deck-head{display:flex; justify-content:space-between; align-items:center;}
+.deck-id{
+  font-size:11px; font-weight:700; letter-spacing:.15em; color:var(--accent);
+  text-shadow:0 0 10px var(--accent-glow);
+}
+.deck-bpm{font-size:10px; color:var(--text-dim);}
+
+.trackzone{
+  border:1px dashed var(--line); border-radius:4px; padding:8px 10px; cursor:pointer;
+  display:flex; align-items:center; gap:8px; min-height:34px;
+}
+.trackzone:hover{border-color:var(--line-bright);}
+.trackzone .fname{font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;}
+.trackzone .fname.empty{color:var(--text-dim);}
+.trackzone .icon{color:var(--accent); font-size:12px;}
+
+.wave-wrap{
+  position:relative; border:1px solid var(--line); border-radius:4px; overflow:hidden;
+  background:#050604; height:110px;
+}
+.wave-wrap canvas{display:block; width:100%; height:100%; cursor:crosshair;}
+.wave-hint{
+  position:absolute; top:6px; left:8px; font-size:9px; color:var(--text-dim); pointer-events:none;
+}
+.time-row{display:flex; justify-content:space-between; font-size:10px; color:var(--text-dim);}
+.time-row .cur{color:var(--accent);}
+
+.transport{display:flex; gap:8px;}
+button.tbtn{
+  flex:1; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+  font-family:var(--mono); font-size:11px; letter-spacing:.1em; padding:9px 6px; border-radius:4px;
+  cursor:pointer; transition:.15s;
+}
+button.tbtn:hover{border-color:var(--line-bright);}
+button.tbtn:active{transform:translateY(1px);}
+button.tbtn.play{color:var(--accent); border-color:var(--accent); box-shadow:0 0 12px var(--accent-glow) inset;}
+button.tbtn.play.active::before{content:"⏸ ";}
+button.tbtn.play:not(.active)::before{content:"▶ ";}
+button.tbtn.cue{color:var(--text);}
+button.tbtn:disabled{opacity:.35; cursor:not-allowed;}
+
+.strip{display:flex; gap:14px; align-items:flex-start;}
+.fader-col{display:flex; flex-direction:column; align-items:center; gap:6px;}
+.fader-label{font-size:9px; color:var(--text-dim); letter-spacing:.1em;}
+.fader-value{font-size:9px; color:var(--accent); min-height:11px;}
+
+.vfader-track{
+  position:relative; width:34px; height:140px; background:var(--panel-2);
+  border:1px solid var(--line); border-radius:3px;
+  display:flex; align-items:center; justify-content:center;
+}
+.vfader-track::before{ /* center tick for pitch */
+  content:""; position:absolute; left:2px; right:2px; top:50%; height:1px; background:var(--line-bright);
+}
+input[type=range].vfader{
+  -webkit-appearance:none; appearance:none; width:120px; height:24px; background:transparent;
+  transform:rotate(-90deg); position:absolute;
+}
+input[type=range].vfader::-webkit-slider-runnable-track{
+  height:4px; background:var(--line-bright); border-radius:2px;
+}
+input[type=range].vfader::-webkit-slider-thumb{
+  -webkit-appearance:none; width:34px; height:14px; margin-top:-5px;
+  background:var(--panel); border:1px solid var(--accent); border-radius:2px;
+  box-shadow:0 0 8px var(--accent-glow); cursor:ns-resize;
+}
+input[type=range].vfader::-moz-range-track{height:4px; background:var(--line-bright); border-radius:2px;}
+input[type=range].vfader::-moz-range-thumb{
+  width:32px; height:12px; background:var(--panel); border:1px solid var(--accent); border-radius:2px;
+  box-shadow:0 0 8px var(--accent-glow); cursor:ns-resize;
+}
+
+.vu{display:flex; gap:2px; height:140px; align-items:flex-end; padding:2px; background:var(--panel-2); border:1px solid var(--line); border-radius:3px;}
+.vu-bar{width:5px; height:100%; background:linear-gradient(0deg, #1c2417, #1c2417); border-radius:1px; position:relative; overflow:hidden;}
+.vu-bar i{position:absolute; bottom:0; left:0; right:0; height:0%; background:linear-gradient(0deg, var(--ok), #e8ff5a 70%, var(--danger) 92%); box-shadow:0 0 6px var(--accent-glow);}
+
+.eq-col{display:flex; flex-direction:column; gap:12px; align-items:center;}
+.knob{
+  width:42px; height:42px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #1c2317, #0c0f0a 70%);
+  border:1px solid var(--line-bright); position:relative; cursor:ns-resize; flex-shrink:0;
+  box-shadow:0 0 0 1px #000 inset;
+}
+.knob::after{content:""; position:absolute; top:3px; left:50%; width:2px; height:14px; background:var(--accent);
+  box-shadow:0 0 6px var(--accent-glow); transform-origin:50% 18px; margin-left:-1px;}
+.knob-label{font-size:9px; color:var(--text-dim); letter-spacing:.08em;}
+
+.led-row{display:flex; gap:6px; margin-top:2px;}
+.led{width:7px; height:7px; border-radius:50%; background:#2a1010; border:1px solid #401818;}
+.led.on{background:var(--danger); box-shadow:0 0 8px var(--danger); border-color:var(--danger);}
+
+input[type=file]{display:none;}
+
+.jog-row{display:flex; justify-content:center; padding:2px 0 4px;}
+.jogwheel{
+  position:relative; width:132px; height:132px; touch-action:none; cursor:grab;
+}
+.jogwheel:active{cursor:grabbing;}
+.jogwheel.disabled{opacity:.35; cursor:not-allowed; pointer-events:none;}
+.jogwheel .platter{
+  width:100%; height:100%; border-radius:50%; display:block;
+  box-shadow:0 0 0 1px #000, 0 6px 16px rgba(0,0,0,.5);
+}
+.jogwheel .needle-mark{
+  position:absolute; top:-4px; left:50%; width:0; height:0; margin-left:-4px;
+  border-left:4px solid transparent; border-right:4px solid transparent; border-top:7px solid var(--accent);
+  filter:drop-shadow(0 0 5px var(--accent-glow)); pointer-events:none;
+}
+.jogwheel .ring{
+  position:absolute; inset:-5px; border-radius:50%; border:1px solid var(--line); pointer-events:none;
+}
+
+/* ---------- center mixer ---------- */
+.mixer-center{
+  background:linear-gradient(180deg, var(--panel), var(--panel-2));
+  border:1px solid var(--line); border-radius:6px; padding:14px;
+  display:flex; flex-direction:column; align-items:center; gap:18px;
+}
+.mixer-title{font-size:10px; letter-spacing:.15em; color:var(--text-dim);}
+.master-vu{display:flex; gap:3px; height:120px;}
+.master-vu .vu-bar{width:9px;}
+
+.knob.master{width:56px; height:56px;}
+.knob.master::after{height:18px; transform-origin:50% 22px;}
+
+.xf-wrap{width:100%; display:flex; flex-direction:column; align-items:center; gap:8px;}
+.xf-track{position:relative; width:100%; height:30px; display:flex; align-items:center;}
+.xf-track::before{content:""; position:absolute; left:0; right:0; top:50%; height:3px; background:var(--line-bright); border-radius:2px;}
+input[type=range].xfader{
+  -webkit-appearance:none; appearance:none; width:100%; height:30px; background:transparent; position:relative; z-index:1;
+}
+input[type=range].xfader::-webkit-slider-runnable-track{height:3px; background:transparent;}
+input[type=range].xfader::-webkit-slider-thumb{
+  -webkit-appearance:none; width:16px; height:26px; margin-top:-11px;
+  background:linear-gradient(180deg, #222a1a, #0e120b); border:1px solid var(--line-bright); border-radius:3px;
+  box-shadow:0 0 10px rgba(255,255,255,.08);
+}
+.xf-labels{display:flex; justify-content:space-between; width:100%; font-size:9px; color:var(--text-dim);}
+.xf-labels .a{color:var(--deck-a);} .xf-labels .b{color:var(--deck-b);}
+
+.rec-wrap{width:100%; display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:2px; border-top:1px solid var(--line);}
+button.tbtn.rec{
+  width:100%; display:flex; align-items:center; justify-content:center; gap:7px;
+  color:var(--text); border-color:var(--line-bright);
+}
+.rec-dot{width:8px; height:8px; border-radius:50%; background:#5a2020; border:1px solid #7a2a2a; transition:.15s;}
+button.tbtn.rec.active{color:var(--danger); border-color:var(--danger); box-shadow:0 0 12px rgba(255,77,94,.35) inset;}
+button.tbtn.rec.active .rec-dot{background:var(--danger); box-shadow:0 0 8px var(--danger); animation:recpulse 1s infinite;}
+@keyframes recpulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+.rec-time{font-size:10px; color:var(--text-dim); letter-spacing:.05em;}
+.rec-download{
+  font-size:10px; color:var(--ok); text-decoration:none; border:1px solid var(--line-bright);
+  padding:6px 10px; border-radius:4px; letter-spacing:.05em; text-align:center;
+}
+.rec-download:hover{border-color:var(--ok);}
+
+footer{
+  text-align:center; font-size:9px; color:var(--text-dim); padding:20px; letter-spacing:.08em;
+}
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="crt-vignette"></div>
+
+<header>
+  <div class="logo">TERMINAL <span>// DECKS</span></div>
+  <div class="status-line">AUDIO CTX: <b id="ctxStatus">IDLE</b></div>
+</header>
+
+<main>
+  <!-- DECK A -->
+  <section class="deck" data-deck="A" id="deckA">
+    <div class="deck-head">
+      <div class="deck-id">DECK A</div>
+      <div class="deck-bpm" id="clockA">00:00.0</div>
+    </div>
+
+    <div class="trackzone" id="dropA">
+      <span class="icon">▸</span>
+      <span class="fname empty" id="fnameA">no track loaded — click or drop audio file</span>
+      <input type="file" id="fileA" accept="audio/*">
+    </div>
+
+    <div class="wave-wrap">
+      <canvas id="waveA"></canvas>
+      <div class="wave-hint">click: seek · dbl-click: set cue</div>
+    </div>
+    <div class="time-row"><span class="cur" id="timeCurA">00:00</span><span id="timeTotA">00:00</span></div>
+
+    <div class="jog-row">
+      <div class="jogwheel disabled" id="jogA">
+        <canvas class="platter" id="platterA"></canvas>
+        <div class="needle-mark"></div>
+        <div class="ring"></div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button class="tbtn cue" id="cueA" disabled>CUE</button>
+      <button class="tbtn play" id="playA" disabled>PLAY</button>
+    </div>
+
+    <div class="strip">
+      <div class="fader-col">
+        <div class="fader-label">PITCH</div>
+        <div class="vfader-track"><input type="range" class="vfader" id="pitchA" min="-8" max="8" step="0.1" value="0"></div>
+        <div class="fader-value" id="pitchValA">0.0%</div>
+      </div>
+      <div class="eq-col">
+        <div><div class="knob" id="hiA" data-v="0.5"></div><div class="knob-label">HI</div></div>
+        <div><div class="knob" id="midA" data-v="0.5"></div><div class="knob-label">MID</div></div>
+        <div><div class="knob" id="loA" data-v="0.5"></div><div class="knob-label">LO</div></div>
+      </div>
+      <div class="fader-col">
+        <div class="fader-label">VOL</div>
+        <div class="vfader-track"><input type="range" class="vfader" id="volA" min="0" max="1" step="0.01" value="0.8"></div>
+      </div>
+      <div class="fader-col">
+        <div class="fader-label">LVL</div>
+        <div class="vu" id="vuA"></div>
+      </div>
+    </div>
+    <div class="led-row"><span class="led" id="clipA"></span><span style="font-size:9px;color:var(--text-dim)">CLIP</span></div>
+  </section>
+
+  <!-- CENTER MIXER -->
+  <section class="mixer-center">
+    <div class="mixer-title">MASTER</div>
+    <div class="master-vu" id="vuMaster"></div>
+    <div><div class="knob master" id="masterKnob" data-v="0.7"></div></div>
+    <div class="led-row"><span class="led" id="clipMaster"></span><span style="font-size:9px;color:var(--text-dim)">CLIP</span></div>
+
+    <div class="xf-wrap">
+      <div class="mixer-title">CROSSFADER</div>
+      <div class="xf-track"><input type="range" class="xfader" id="crossfader" min="0" max="1" step="0.01" value="0.5"></div>
+      <div class="xf-labels"><span class="a">A</span><span class="b">B</span></div>
+    </div>
+
+    <div class="rec-wrap">
+      <div class="mixer-title">RECORD OUT</div>
+      <button class="tbtn rec" id="recBtn"><span class="rec-dot"></span>REC</button>
+      <div class="rec-time" id="recTime">00:00</div>
+      <a class="rec-download" id="recDownload" href="#" download style="display:none;">↓ SAVE RECORDING</a>
+    </div>
+  </section>
+
+  <!-- DECK B -->
+  <section class="deck" data-deck="B" id="deckB">
+    <div class="deck-head">
+      <div class="deck-id">DECK B</div>
+      <div class="deck-bpm" id="clockB">00:00.0</div>
+    </div>
+
+    <div class="trackzone" id="dropB">
+      <span class="icon">▸</span>
+      <span class="fname empty" id="fnameB">no track loaded — click or drop audio file</span>
+      <input type="file" id="fileB" accept="audio/*">
+    </div>
+
+    <div class="wave-wrap">
+      <canvas id="waveB"></canvas>
+      <div class="wave-hint">click: seek · dbl-click: set cue</div>
+    </div>
+    <div class="time-row"><span class="cur" id="timeCurB">00:00</span><span id="timeTotB">00:00</span></div>
+
+    <div class="jog-row">
+      <div class="jogwheel disabled" id="jogB">
+        <canvas class="platter" id="platterB"></canvas>
+        <div class="needle-mark"></div>
+        <div class="ring"></div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button class="tbtn cue" id="cueB" disabled>CUE</button>
+      <button class="tbtn play" id="playB" disabled>PLAY</button>
+    </div>
+
+    <div class="strip">
+      <div class="fader-col">
+        <div class="fader-label">LVL</div>
+        <div class="vu" id="vuB"></div>
+      </div>
+      <div class="fader-col">
+        <div class="fader-label">VOL</div>
+        <div class="vfader-track"><input type="range" class="vfader" id="volB" min="0" max="1" step="0.01" value="0.8"></div>
+      </div>
+      <div class="eq-col">
+        <div><div class="knob" id="hiB" data-v="0.5"></div><div class="knob-label">HI</div></div>
+        <div><div class="knob" id="midB" data-v="0.5"></div><div class="knob-label">MID</div></div>
+        <div><div class="knob" id="loB" data-v="0.5"></div><div class="knob-label">LO</div></div>
+      </div>
+      <div class="fader-col">
+        <div class="fader-label">PITCH</div>
+        <div class="vfader-track"><input type="range" class="vfader" id="pitchB" min="-8" max="8" step="0.1" value="0"></div>
+        <div class="fader-value" id="pitchValB">0.0%</div>
+      </div>
+    </div>
+    <div class="led-row"><span class="led" id="clipB"></span><span style="font-size:9px;color:var(--text-dim)">CLIP</span></div>
+  </section>
+</main>
+
+<footer>ALL PROCESSING LOCAL — NO UPLOAD — WEB AUDIO API</footer>
+
+<script>
+(() => {
+  "use strict";
+
+  let ctx = null;
+  let master = { gain:null, analyser:null };
+  const decks = {};
+
+  function ensureCtx(){
+    if(!ctx){
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master.gain = ctx.createGain();
+      master.gain.gain.value = parseFloat(document.getElementById('masterKnob').dataset.v);
+      master.analyser = ctx.createAnalyser();
+      master.analyser.fftSize = 512;
+      master.gain.connect(master.analyser);
+      master.analyser.connect(ctx.destination);
+      master.streamDest = ctx.createMediaStreamDestination();
+      master.gain.connect(master.streamDest);
+      document.getElementById('ctxStatus').textContent = 'RUNNING';
+    }
+    if(ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+
+  function makeDeck(id){
+    const d = {
+      id, buffer:null, duration:0,
+      source:null, isPlaying:false, manualStop:false,
+      startTime:0, startOffset:0, cuePoint:0,
+      pitchRate:1.0,
+      low:null, mid:null, high:null, vol:null, cross:null, analyser:null,
+      peaks:null,
+      els:{}
+    };
+    return d;
+  }
+
+  function buildGraph(d){
+    d.low = ctx.createBiquadFilter(); d.low.type='lowshelf'; d.low.frequency.value=320;
+    d.mid = ctx.createBiquadFilter(); d.mid.type='peaking'; d.mid.frequency.value=1000; d.mid.Q.value=0.9;
+    d.high = ctx.createBiquadFilter(); d.high.type='highshelf'; d.high.frequency.value=3200;
+    d.vol = ctx.createGain();
+    d.cross = ctx.createGain();
+    d.analyser = ctx.createAnalyser(); d.analyser.fftSize = 256;
+
+    d.low.connect(d.mid); d.mid.connect(d.high); d.high.connect(d.vol);
+    d.vol.connect(d.cross); d.cross.connect(d.analyser); d.analyser.connect(master.gain);
+  }
+
+  function dbFromKnob(v){ return (v-0.5)*2*24; } // -24..+24 dB
+  function midDbFromKnob(v){ return (v-0.5)*2*18; }
+
+  function fmtTime(s){
+    if(!isFinite(s) || s<0) s=0;
+    const m = Math.floor(s/60); const sec = Math.floor(s%60);
+    return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+  }
+  function fmtClock(s){
+    if(!isFinite(s) || s<0) s=0;
+    const m = Math.floor(s/60); const sec = (s%60).toFixed(1).padStart(4,'0');
+    return String(m).padStart(2,'0')+':'+sec;
+  }
+
+  function currentPos(d){
+    if(!d.buffer) return 0;
+    if(d.isPlaying){
+      return d.startOffset + (ctx.currentTime - d.startTime) * d.pitchRate;
+    }
+    return d.startOffset;
+  }
+
+  function stopSourceInternal(d, manual){
+    if(d.source){
+      d.manualStop = true;
+      try{ d.source.stop(); }catch(e){}
+      d.source.disconnect();
+      d.source = null;
+    }
+  }
+
+  function startSourceAt(d, offset){
+    stopSourceInternal(d);
+    const src = ctx.createBufferSource();
+    src.buffer = d.buffer;
+    src.playbackRate.value = d.pitchRate;
+    src.connect(d.low);
+    src.onended = () => {
+      if(!d.manualStop){
+        d.isPlaying = false;
+        d.startOffset = 0;
+        updatePlayBtn(d);
+      }
+      d.manualStop = false;
+    };
+    const clamped = Math.max(0, Math.min(offset, d.duration - 0.01));
+    src.start(0, clamped);
+    d.source = src;
+    d.startTime = ctx.currentTime;
+    d.startOffset = clamped;
+  }
+
+  function startSourceAtRate(d, offset, rate){
+    stopSourceInternal(d);
+    const src = ctx.createBufferSource();
+    src.buffer = d.buffer;
+    src.playbackRate.value = rate;
+    src.connect(d.low);
+    src.onended = () => { d.manualStop = false; };
+    const clamped = Math.max(0, Math.min(offset, d.duration - 0.01));
+    try{ src.start(0, clamped); }catch(e){}
+    d.source = src;
+  }
+
+  function play(d){
+    if(!d.buffer) return;
+    ensureCtx();
+    startSourceAt(d, currentPos(d));
+    d.isPlaying = true;
+    updatePlayBtn(d);
+  }
+
+  function pause(d){
+    if(!d.buffer || !d.isPlaying) return;
+    const pos = currentPos(d);
+    stopSourceInternal(d);
+    d.startOffset = pos;
+    d.isPlaying = false;
+    updatePlayBtn(d);
+  }
+
+  function seek(d, t){
+    t = Math.max(0, Math.min(t, d.duration));
+    if(d.isPlaying){
+      startSourceAt(d, t);
+    } else {
+      d.startOffset = t;
+    }
+  }
+
+  function cue(d){
+    if(!d.buffer) return;
+    if(d.isPlaying){
+      stopSourceInternal(d);
+      d.isPlaying = false;
+    }
+    d.startOffset = d.cuePoint;
+    updatePlayBtn(d);
+    drawWave(d);
+  }
+
+  function updatePlayBtn(d){
+    const btn = d.els.play;
+    btn.classList.toggle('active', d.isPlaying);
+    btn.textContent = d.isPlaying ? 'PAUSE' : 'PLAY';
+  }
+
+  /* ---------- waveform ---------- */
+  function computePeaks(buffer, buckets){
+    const data = buffer.getChannelData(0);
+    const step = Math.floor(data.length / buckets) || 1;
+    const peaks = new Float32Array(buckets*2);
+    for(let i=0;i<buckets;i++){
+      let min=1, max=-1;
+      const start = i*step;
+      const end = Math.min(start+step, data.length);
+      for(let j=start;j<end;j++){
+        const v = data[j];
+        if(v<min) min=v;
+        if(v>max) max=v;
+      }
+      peaks[i*2]=min; peaks[i*2+1]=max;
+    }
+    return peaks;
+  }
+
+  function resizeCanvas(canvas){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width*dpr;
+    canvas.height = rect.height*dpr;
+    const cx = canvas.getContext('2d');
+    cx.setTransform(dpr,0,0,dpr,0,0);
+    return cx;
+  }
+
+  function drawWave(d){
+    const canvas = d.els.canvas;
+    const cx = resizeCanvas(canvas);
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+    cx.clearRect(0,0,w,h);
+    const accent = getComputedStyle(d.els.root).getPropertyValue('--accent').trim();
+
+    if(d.peaks){
+      const buckets = d.peaks.length/2;
+      const mid = h/2;
+      cx.strokeStyle = accent;
+      cx.globalAlpha = 0.85;
+      cx.lineWidth = Math.max(1, w/buckets*0.8);
+      cx.shadowColor = accent; cx.shadowBlur = 4;
+      for(let i=0;i<buckets;i++){
+        const x = (i/buckets)*w;
+        const min = d.peaks[i*2], max = d.peaks[i*2+1];
+        cx.beginPath();
+        cx.moveTo(x, mid + min*mid*0.92);
+        cx.lineTo(x, mid + max*mid*0.92);
+        cx.stroke();
+      }
+      cx.shadowBlur = 0; cx.globalAlpha = 1;
+
+      // played overlay
+      const pos = currentPos(d);
+      const frac = Math.max(0, Math.min(1, pos/d.duration));
+      cx.fillStyle = 'rgba(255,255,255,0.06)';
+      cx.fillRect(0,0,w*frac,h);
+
+      // cue marker
+      const cueFrac = d.cuePoint/d.duration;
+      cx.strokeStyle = '#ffe45a';
+      cx.globalAlpha = 0.8;
+      cx.beginPath();
+      cx.moveTo(cueFrac*w, 0); cx.lineTo(cueFrac*w, h);
+      cx.stroke();
+      cx.globalAlpha = 1;
+
+      // playhead
+      cx.strokeStyle = '#ffffff';
+      cx.shadowColor = accent; cx.shadowBlur = 8;
+      cx.beginPath();
+      cx.moveTo(frac*w, 0); cx.lineTo(frac*w, h);
+      cx.stroke();
+      cx.shadowBlur = 0;
+    } else {
+      cx.fillStyle = '#1a2015';
+      cx.font = '10px monospace';
+      cx.fillText('— no signal —', 10, h/2);
+    }
+  }
+
+  /* ---------- knobs ---------- */
+  function initKnob(el, onChange, initial){
+    let v = initial;
+    const set = (nv, silent) => {
+      v = Math.max(0, Math.min(1, nv));
+      el.dataset.v = v;
+      const angle = -135 + v*270;
+      el.style.setProperty('--knob-angle', angle+'deg');
+      if(!silent) onChange(v);
+    };
+    set(initial, true);
+    let dragging=false, startY=0, startV=0;
+    const down = (e) => {
+      dragging=true; startY = (e.touches?e.touches[0].clientY:e.clientY); startV=v;
+      document.body.style.cursor='ns-resize';
+      e.preventDefault();
+    };
+    const move = (e) => {
+      if(!dragging) return;
+      const y = (e.touches?e.touches[0].clientY:e.clientY);
+      const delta = (startY - y) / 120;
+      set(startV+delta);
+    };
+    const up = () => { dragging=false; document.body.style.cursor=''; };
+    el.addEventListener('mousedown', down);
+    el.addEventListener('touchstart', down, {passive:false});
+    window.addEventListener('mousemove', move);
+    window.addEventListener('touchmove', move, {passive:false});
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchend', up);
+    el.addEventListener('dblclick', () => set(0.5));
+    return { set };
+  }
+
+  // inject rotation via CSS var on ::after using inline style workaround
+  const style = document.createElement('style');
+  style.textContent = `.knob::after{ transform: translateX(-50%) rotate(var(--knob-angle,-135deg)); }`;
+  document.head.appendChild(style);
+
+  /* ---------- VU meters ---------- */
+  function buildVU(container, n){
+    container.innerHTML='';
+    const bars=[];
+    for(let i=0;i<n;i++){
+      const b = document.createElement('div'); b.className='vu-bar';
+      const i2 = document.createElement('i'); b.appendChild(i2);
+      container.appendChild(b); bars.push(i2);
+    }
+    return bars;
+  }
+
+  const REV_SEC = 60/33.333; // seconds per revolution at 33 1/3 RPM
+
+  function drawPlatterTexture(canvas){
+    const dpr = window.devicePixelRatio || 1;
+    const size = canvas.getBoundingClientRect().width || 132;
+    canvas.width = size*dpr; canvas.height = size*dpr;
+    const cx = canvas.getContext('2d');
+    cx.setTransform(dpr,0,0,dpr,0,0);
+    const r = size/2;
+    cx.clearRect(0,0,size,size);
+
+    cx.fillStyle = '#0a0b08';
+    cx.beginPath(); cx.arc(r,r,r-1,0,Math.PI*2); cx.fill();
+
+    cx.strokeStyle = 'rgba(255,255,255,0.05)';
+    for(let rad=r*0.42; rad<r-3; rad+=3.5){
+      cx.beginPath(); cx.arc(r,r,rad,0,Math.PI*2); cx.lineWidth = 1; cx.stroke();
+    }
+
+    cx.strokeStyle = 'rgba(255,255,255,0.09)';
+    cx.lineWidth = 1;
+    cx.beginPath(); cx.arc(r,r,r-2,0,Math.PI*2); cx.stroke();
+
+    const accent = getComputedStyle(canvas.parentElement).getPropertyValue('--accent').trim();
+    const labelR = r*0.4;
+    const grad = cx.createRadialGradient(r,r,labelR*0.1,r,r,labelR);
+    grad.addColorStop(0,'#1a2016'); grad.addColorStop(1,'#0e1109');
+    cx.fillStyle = grad;
+    cx.beginPath(); cx.arc(r,r,labelR,0,Math.PI*2); cx.fill();
+    cx.strokeStyle = accent; cx.globalAlpha=.6; cx.lineWidth=1;
+    cx.stroke(); cx.globalAlpha=1;
+
+    // rotation indicator line on the label (this is what makes spin visible)
+    cx.strokeStyle = accent; cx.lineWidth = 2; cx.shadowColor = accent; cx.shadowBlur = 4;
+    cx.beginPath(); cx.moveTo(r,r); cx.lineTo(r, r-labelR+3); cx.stroke();
+    cx.shadowBlur = 0;
+
+    cx.fillStyle = accent; cx.beginPath(); cx.arc(r,r,2.5,0,Math.PI*2); cx.fill();
+
+    // spindle hole
+    cx.fillStyle = '#050604';
+    cx.beginPath(); cx.arc(r,r,3,0,Math.PI*2); cx.fill();
+  }
+
+  function setupJog(d){
+    const wheel = d.els.jogwheel;
+    let dragging=false, lastAngle=0, lastTime=0, wasPlaying=false;
+
+    const angleFromEvent = (e) => {
+      const rect = wheel.getBoundingClientRect();
+      const cx0 = rect.left+rect.width/2, cy0 = rect.top+rect.height/2;
+      return Math.atan2(e.clientY-cy0, e.clientX-cx0) * 180/Math.PI;
+    };
+
+    const down = (e) => {
+      if(!d.buffer) return;
+      ensureCtx();
+      dragging = true;
+      try{ wheel.setPointerCapture(e.pointerId); }catch(err){}
+      wasPlaying = d.isPlaying;
+      if(d.isPlaying){
+        const pos = currentPos(d);
+        stopSourceInternal(d);
+        d.startOffset = pos;
+        d.isPlaying = false;
+      }
+      lastAngle = angleFromEvent(e);
+      lastTime = performance.now();
+      e.preventDefault();
+    };
+
+    const move = (e) => {
+      if(!dragging || !d.buffer) return;
+      const now = performance.now();
+      const angle = angleFromEvent(e);
+      let delta = angle - lastAngle;
+      delta = ((delta+540)%360)-180;
+      const dtWall = Math.max(0.001,(now-lastTime)/1000);
+      const deltaTime = (delta/360)*REV_SEC;
+      let newPos = d.startOffset + deltaTime;
+      newPos = Math.max(0, Math.min(newPos, d.duration));
+      const rateMag = Math.max(0.05, Math.min(4, Math.abs(deltaTime/dtWall) || 0.05));
+      startSourceAtRate(d, newPos, rateMag);
+      d.startOffset = newPos;
+      lastAngle = angle; lastTime = now;
+      e.preventDefault();
+    };
+
+    const up = (e) => {
+      if(!dragging) return;
+      dragging = false;
+      try{ wheel.releasePointerCapture(e.pointerId); }catch(err){}
+      if(d.source){ stopSourceInternal(d); }
+      if(wasPlaying){
+        play(d);
+      } else {
+        updatePlayBtn(d);
+        drawWave(d);
+      }
+    };
+
+    wheel.addEventListener('pointerdown', down);
+    wheel.addEventListener('pointermove', move);
+    wheel.addEventListener('pointerup', up);
+    wheel.addEventListener('pointercancel', up);
+  }
+
+  function setupDeck(id){
+    const d = makeDeck(id);
+    const root = document.getElementById('deck'+id);
+    d.els.root = root;
+    d.els.file = document.getElementById('file'+id);
+    d.els.drop = document.getElementById('drop'+id);
+    d.els.fname = document.getElementById('fname'+id);
+    d.els.canvas = document.getElementById('wave'+id);
+    d.els.play = document.getElementById('play'+id);
+    d.els.cue = document.getElementById('cue'+id);
+    d.els.timeCur = document.getElementById('timeCur'+id);
+    d.els.timeTot = document.getElementById('timeTot'+id);
+    d.els.clock = document.getElementById('clock'+id);
+    d.els.pitch = document.getElementById('pitch'+id);
+    d.els.pitchVal = document.getElementById('pitchVal'+id);
+    d.els.vol = document.getElementById('vol'+id);
+    d.els.clip = document.getElementById('clip'+id);
+    d.els.vuBars = buildVU(document.getElementById('vu'+id), 10);
+    d.els.jogwheel = document.getElementById('jog'+id);
+    d.els.platter = document.getElementById('platter'+id);
+
+    d.els.drop.addEventListener('click', (e) => { if(e.target.tagName!=='INPUT') d.els.file.click(); });
+    d.els.file.addEventListener('change', (e) => { if(e.target.files[0]) loadFile(d, e.target.files[0]); });
+    ['dragover','dragenter'].forEach(ev => d.els.drop.parentElement.addEventListener(ev, (e)=>{e.preventDefault(); root.classList.add('drag-over');}));
+    ['dragleave','drop'].forEach(ev => d.els.drop.parentElement.addEventListener(ev, (e)=>{e.preventDefault(); root.classList.remove('drag-over');}));
+    root.addEventListener('drop', (e) => {
+      const f = e.dataTransfer.files[0];
+      if(f) loadFile(d, f);
+    });
+
+    d.els.play.addEventListener('click', () => { ensureCtx(); d.isPlaying ? pause(d) : play(d); });
+    d.els.cue.addEventListener('click', () => { ensureCtx(); cue(d); });
+
+    d.els.canvas.addEventListener('click', (e) => {
+      if(!d.buffer) return;
+      const rect = d.els.canvas.getBoundingClientRect();
+      const frac = (e.clientX-rect.left)/rect.width;
+      seek(d, frac*d.duration);
+    });
+    d.els.canvas.addEventListener('dblclick', (e) => {
+      if(!d.buffer) return;
+      const rect = d.els.canvas.getBoundingClientRect();
+      const frac = (e.clientX-rect.left)/rect.width;
+      d.cuePoint = frac*d.duration;
+    });
+
+    d.els.pitch.addEventListener('input', () => {
+      const pct = parseFloat(d.els.pitch.value);
+      const newRate = 1 + pct/100;
+      if(d.isPlaying){
+        const pos = currentPos(d);
+        d.startOffset = pos;
+        d.startTime = ctx.currentTime;
+        if(d.source) d.source.playbackRate.value = newRate;
+      }
+      d.pitchRate = newRate;
+      d.els.pitchVal.textContent = (pct>=0?'+':'')+pct.toFixed(1)+'%';
+    });
+
+    d.els.vol.addEventListener('input', () => {
+      ensureCtxIfNeeded();
+      if(d.vol) d.vol.gain.value = parseFloat(d.els.vol.value);
+    });
+
+    drawPlatterTexture(d.els.platter);
+    setupJog(d);
+
+    decks[id] = d;
+    return d;
+  }
+
+  function ensureCtxIfNeeded(){ if(!ctx) return; }
+
+  function loadFile(d, file){
+    d.els.fname.textContent = 'decoding — ' + file.name;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      ensureCtx();
+      if(!d.low) buildGraph(d);
+      ctx.decodeAudioData(e.target.result.slice(0), (buffer) => {
+        d.buffer = buffer;
+        d.duration = buffer.duration;
+        d.startOffset = 0; d.cuePoint = 0; d.isPlaying = false;
+        d.peaks = computePeaks(buffer, 400);
+        d.els.fname.textContent = file.name;
+        d.els.fname.classList.remove('empty');
+        d.els.timeTot.textContent = fmtTime(d.duration);
+        d.els.play.disabled = false; d.els.cue.disabled = false;
+        d.els.jogwheel.classList.remove('disabled');
+        d.vol.gain.value = parseFloat(d.els.vol.value);
+        d.low.gain.value = dbFromKnob(parseFloat(document.getElementById('lo'+d.id).dataset.v));
+        d.mid.gain.value = midDbFromKnob(parseFloat(document.getElementById('mid'+d.id).dataset.v));
+        d.high.gain.value = dbFromKnob(parseFloat(document.getElementById('hi'+d.id).dataset.v));
+        updatePlayBtn(d);
+        drawWave(d);
+      }, (err) => {
+        d.els.fname.textContent = 'decode failed — ' + file.name;
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  /* ---------- init decks ---------- */
+  const dA = setupDeck('A');
+  const dB = setupDeck('B');
+
+  ['A','B'].forEach(id => {
+    const d = decks[id];
+    initKnob(document.getElementById('hi'+id), (v) => { if(d.high) d.high.gain.value = dbFromKnob(v); }, 0.5);
+    initKnob(document.getElementById('mid'+id), (v) => { if(d.mid) d.mid.gain.value = midDbFromKnob(v); }, 0.5);
+    initKnob(document.getElementById('lo'+id), (v) => { if(d.low) d.low.gain.value = dbFromKnob(v); }, 0.5);
+  });
+
+  const masterKnobEl = document.getElementById('masterKnob');
+  initKnob(masterKnobEl, (v) => { ensureCtx(); master.gain.gain.value = v*1.4; }, 0.7);
+
+  const crossfader = document.getElementById('crossfader');
+  function applyCrossfader(){
+    const v = parseFloat(crossfader.value);
+    const gA = Math.cos(v*Math.PI/2);
+    const gB = Math.sin(v*Math.PI/2);
+    if(dA.cross) dA.cross.gain.value = gA;
+    if(dB.cross) dB.cross.gain.value = gB;
+  }
+  crossfader.addEventListener('input', applyCrossfader);
+
+  /* ---------- master VU ---------- */
+  const masterVUBars = buildVU(document.getElementById('vuMaster'), 14);
+
+  function readLevel(analyser, tmp){
+    analyser.getByteTimeDomainData(tmp);
+    let peak=0;
+    for(let i=0;i<tmp.length;i++){
+      const v = Math.abs(tmp[i]-128)/128;
+      if(v>peak) peak=v;
+    }
+    return peak;
+  }
+
+  function animateVU(bars, level, clipEl){
+    const n = bars.length;
+    const lit = Math.round(level*n*1.4);
+    for(let i=0;i<n;i++){
+      bars[i].style.height = (i<lit ? Math.min(100,(i+1)/n*100+10) : 0)+'%';
+    }
+    if(clipEl){
+      clipEl.classList.toggle('on', level>0.97);
+    }
+  }
+
+  const tmpA = new Uint8Array(256), tmpB = new Uint8Array(256), tmpM = new Uint8Array(512);
+
+  function loop(){
+    ['A','B'].forEach(id => {
+      const d = decks[id];
+      if(d.buffer){
+        drawWave(d);
+        const pos = currentPos(d);
+        d.els.timeCur.textContent = fmtTime(pos);
+        d.els.clock.textContent = fmtClock(pos);
+        const rot = (pos/REV_SEC*360) % 360;
+        d.els.platter.style.transform = `rotate(${rot}deg)`;
+        if(d.analyser){
+          const lvl = readLevel(d.analyser, id==='A'?tmpA:tmpB);
+          animateVU(d.els.vuBars, lvl, d.els.clip);
+        }
+        if(d.isPlaying && pos >= d.duration - 0.02){
+          // natural end fallback in case onended lags
+        }
+      }
+    });
+    if(master.analyser){
+      const lvl = readLevel(master.analyser, tmpM);
+      animateVU(masterVUBars, lvl, document.getElementById('clipMaster'));
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  applyCrossfader();
+  window.addEventListener('resize', () => { ['A','B'].forEach(id=>{drawWave(decks[id]); drawPlatterTexture(decks[id].els.platter);}); });
+
+  /* ---------- recording ---------- */
+  const recBtn = document.getElementById('recBtn');
+  const recTimeEl = document.getElementById('recTime');
+  const recDownload = document.getElementById('recDownload');
+  let mediaRecorder = null, recChunks = [], recStartTime = 0, recTimerId = null, isRecording = false;
+
+  function pickMimeType(){
+    const candidates = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4'];
+    for(const c of candidates){
+      if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) return c;
+    }
+    return '';
+  }
+
+  function startRecording(){
+    ensureCtx();
+    if(!window.MediaRecorder){
+      recTimeEl.textContent = 'unsupported';
+      return;
+    }
+    recChunks = [];
+    const mimeType = pickMimeType();
+    try{
+      mediaRecorder = mimeType ? new MediaRecorder(master.streamDest.stream, {mimeType}) : new MediaRecorder(master.streamDest.stream);
+    }catch(e){
+      mediaRecorder = new MediaRecorder(master.streamDest.stream);
+    }
+    mediaRecorder.ondataavailable = (e) => { if(e.data && e.data.size>0) recChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
+      const url = URL.createObjectURL(blob);
+      const ext = (mediaRecorder.mimeType||'').includes('mp4') ? 'm4a' : (mediaRecorder.mimeType||'').includes('ogg') ? 'ogg' : 'webm';
+      recDownload.href = url;
+      recDownload.download = 'terminal-decks-session.' + ext;
+      recDownload.style.display = 'inline-block';
+    };
+    recDownload.style.display = 'none';
+    mediaRecorder.start(250);
+    isRecording = true;
+    recStartTime = performance.now();
+    recBtn.classList.add('active');
+    recTimerId = setInterval(() => {
+      const s = (performance.now()-recStartTime)/1000;
+      recTimeEl.textContent = fmtTime(s);
+    }, 200);
+  }
+
+  function stopRecording(){
+    if(mediaRecorder && isRecording){
+      mediaRecorder.stop();
+    }
+    isRecording = false;
+    recBtn.classList.remove('active');
+    clearInterval(recTimerId);
+  }
+
+  recBtn.addEventListener('click', () => {
+    if(isRecording) stopRecording(); else startRecording();
+  });
+})();
+</script>
+</body>
+</html>
