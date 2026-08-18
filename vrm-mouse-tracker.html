@@ -144,6 +144,60 @@
     transition: opacity .2s;
   }
   body.ui-hidden #hiddenHint { opacity: 0.55; }
+
+  /* ---- pose editor ---- */
+  #poseEditor {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 260px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    z-index: 30;
+    display: none;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform .18s ease;
+  }
+  #poseEditor.open { display: flex; transform: translateX(0); }
+  #poseEditor .pe-header {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+  }
+  #poseEditor .pe-title { color: var(--accent); font-weight: 600; letter-spacing: .04em; }
+  #poseEditor .pe-hint { color: var(--text-dim); margin-top: 4px; line-height: 1.6; font-size: 10px; }
+  #poseEditor .pe-slots {
+    display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap;
+  }
+  #poseEditor .pe-slot {
+    width: 22px; height: 22px; font-size: 10px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); border-radius: 3px;
+    color: var(--text-dim); cursor: pointer;
+    position: relative;
+  }
+  #poseEditor .pe-slot:hover { border-color: var(--accent); color: var(--accent); }
+  #poseEditor .pe-slot.filled { color: var(--text); border-color: var(--text-dim); }
+  #poseEditor .pe-slot.filled::after {
+    content: ""; position: absolute; bottom: 2px; right: 2px;
+    width: 4px; height: 4px; border-radius: 50%; background: var(--accent);
+  }
+  #poseEditor .pe-slot.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  #poseEditor .pe-body { flex: 1; overflow-y: auto; padding: 4px 12px 16px; }
+  #poseEditor .pe-group-title {
+    font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: .06em; margin: 12px 0 4px;
+  }
+  #poseEditor .pe-bone-row { padding: 4px 0; border-top: 1px solid var(--border); }
+  #poseEditor .pe-bone-row:first-child { border-top: none; }
+  #poseEditor .pe-bone-name { font-size: 10px; color: var(--text-dim); margin-bottom: 3px; }
+  #poseEditor .pe-axes { display: flex; gap: 6px; }
+  #poseEditor .pe-axis { flex: 1; display: flex; flex-direction: column; align-items: stretch; }
+  #poseEditor .pe-axis-label { font-size: 9px; color: var(--text-dim); text-align: center; }
+  #poseEditor .pe-axis input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+  .pose-badge {
+    color: var(--accent); pointer-events: auto; margin-left: 8px;
+  }
 </style>
 </head>
 <body>
@@ -152,7 +206,7 @@
 
 <div class="hud" id="topbar">
   <div class="brand">vrm-tracker</div>
-  <div class="status" id="statusText">no model loaded</div>
+  <div class="status" id="statusText">no model loaded<span class="pose-badge" id="poseBadge"></span></div>
 </div>
 
 <div class="hud" id="panel" style="display:none;">
@@ -168,6 +222,18 @@
     <button id="changeModelBtn">change model</button>
     <button id="forgetBtn" class="danger">forget</button>
   </div>
+  <div style="margin-top:8px; font-size:10px; color:var(--text-dim); line-height:1.6;">
+    P: pose editor &nbsp;/&nbsp; 1-9: apply pose &nbsp;/&nbsp; 0: clear pose
+  </div>
+</div>
+
+<div id="poseEditor">
+  <div class="pe-header">
+    <div class="pe-title">POSE EDITOR</div>
+    <div class="pe-hint">1-9: このエディター内では保存済みポーズを読込<br>Shift+1-9: 現在の姿勢をその番号に保存<br>P / Esc: 閉じる</div>
+    <div class="pe-slots" id="peSlots"></div>
+  </div>
+  <div class="pe-body" id="peBody"></div>
 </div>
 
 <div id="dropzone">
@@ -205,14 +271,47 @@ import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName, VRMExpressionPresetName } 
 // IndexedDBで実現しています。挙動としてはCookie保存と同じ体験です。
 const DB_NAME = 'vrm-tracker-db';
 const STORE = 'files';
+const POSE_STORE = 'poses';
 const KEY = 'last-vrm';
 
 function openDb() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    const req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      if (!db.objectStoreNames.contains(POSE_STORE)) db.createObjectStore(POSE_STORE);
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+  });
+}
+async function savePoseData(slot, poseData) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(POSE_STORE, 'readwrite');
+    tx.objectStore(POSE_STORE).put(poseData, slot);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function loadAllPoseData() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(POSE_STORE, 'readonly');
+    const store = tx.objectStore(POSE_STORE);
+    const result = {};
+    const cursorReq = store.openCursor();
+    cursorReq.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) {
+        result[cursor.key] = cursor.value;
+        cursor.continue();
+      } else {
+        resolve(result);
+      }
+    };
+    cursorReq.onerror = () => reject(cursorReq.error);
   });
 }
 async function saveModel(arrayBuffer, name) {
@@ -305,6 +404,9 @@ async function loadVrmFromArrayBuffer(arrayBuffer) {
         scene.add(vrm.scene);
         currentVrm = vrm;
         applyNaturalPose(vrm);
+        activePoseSlot = null;
+        if (typeof refreshPoseSlotsUI === 'function') refreshPoseSlotsUI();
+        if (poseEditorOpen) refreshSlidersFromBones();
 
         // カメラをモデルの頭付近にフォーカス
         const head = vrm.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Head);
@@ -350,7 +452,218 @@ function setLoading(on) {
   document.getElementById('loading').classList.toggle('show', on);
 }
 
-// ---------- UI wiring ----------
+// ---------- pose editor ----------
+const POSE_GROUPS = [
+  { title: 'Body', bones: ['Hips', 'Spine', 'Chest', 'Neck', 'Head'] },
+  { title: 'Left Arm', bones: ['LeftUpperArm', 'LeftLowerArm', 'LeftHand'] },
+  { title: 'Right Arm', bones: ['RightUpperArm', 'RightLowerArm', 'RightHand'] },
+  { title: 'Left Leg', bones: ['LeftUpperLeg', 'LeftLowerLeg'] },
+  { title: 'Right Leg', bones: ['RightUpperLeg', 'RightLowerLeg'] },
+];
+const POSE_BONES = POSE_GROUPS.flatMap(g => g.bones);
+
+let savedPoses = {};       // slot(number) -> { BoneName: {x,y,z}, ... }
+let activePoseSlot = null; // 通常モードで適用中のスロット番号
+let poseEditorOpen = false;
+const sliderRefs = {}; // boneName -> { x: input, y: input, z: input }
+
+function getPoseBone(key) {
+  return currentVrm?.humanoid?.getNormalizedBoneNode(VRMHumanBoneName[key]) || null;
+}
+
+function captureCurrentPose() {
+  const pose = {};
+  for (const key of POSE_BONES) {
+    const bone = getPoseBone(key);
+    if (bone) pose[key] = { x: bone.rotation.x, y: bone.rotation.y, z: bone.rotation.z };
+  }
+  return pose;
+}
+
+function applyPoseToBones(poseData) {
+  for (const key of POSE_BONES) {
+    const bone = getPoseBone(key);
+    if (!bone) continue;
+    const r = poseData[key];
+    if (r) bone.rotation.set(r.x, r.y, r.z);
+  }
+}
+
+function refreshSlidersFromBones() {
+  for (const key of POSE_BONES) {
+    const bone = getPoseBone(key);
+    const refs = sliderRefs[key];
+    if (!bone || !refs) continue;
+    ['x', 'y', 'z'].forEach(axis => {
+      const deg = Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis]));
+      refs[axis].input.value = deg;
+      refs[axis].label.textContent = `${axis.toUpperCase()} ${deg}°`;
+    });
+  }
+}
+
+function buildPoseEditorUI() {
+  const body = document.getElementById('peBody');
+  body.innerHTML = '';
+  for (const group of POSE_GROUPS) {
+    const groupTitle = document.createElement('div');
+    groupTitle.className = 'pe-group-title';
+    groupTitle.textContent = group.title;
+    body.appendChild(groupTitle);
+
+    for (const key of group.bones) {
+      const row = document.createElement('div');
+      row.className = 'pe-bone-row';
+      const name = document.createElement('div');
+      name.className = 'pe-bone-name';
+      name.textContent = key;
+      row.appendChild(name);
+
+      const axes = document.createElement('div');
+      axes.className = 'pe-axes';
+      sliderRefs[key] = {};
+      ['x', 'y', 'z'].forEach(axis => {
+        const wrap = document.createElement('div');
+        wrap.className = 'pe-axis';
+        const label = document.createElement('div');
+        label.className = 'pe-axis-label';
+        label.textContent = `${axis.toUpperCase()} 0°`;
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.min = -180; input.max = 180; input.value = 0;
+        input.addEventListener('input', () => {
+          const bone = getPoseBone(key);
+          if (!bone) return;
+          const rad = THREE.MathUtils.degToRad(Number(input.value));
+          bone.rotation[axis] = rad;
+          label.textContent = `${axis.toUpperCase()} ${input.value}°`;
+        });
+        wrap.appendChild(label);
+        wrap.appendChild(input);
+        axes.appendChild(wrap);
+        sliderRefs[key][axis] = { input, label };
+      });
+      row.appendChild(axes);
+      body.appendChild(row);
+    }
+  }
+}
+
+function buildPoseSlotsUI() {
+  const container = document.getElementById('peSlots');
+  container.innerHTML = '';
+  for (let i = 1; i <= 9; i++) {
+    const btn = document.createElement('div');
+    btn.className = 'pe-slot';
+    btn.textContent = String(i);
+    btn.dataset.slot = i;
+    container.appendChild(btn);
+  }
+  refreshPoseSlotsUI();
+}
+
+function refreshPoseSlotsUI() {
+  document.querySelectorAll('#peSlots .pe-slot').forEach(el => {
+    const slot = Number(el.dataset.slot);
+    el.classList.toggle('filled', !!savedPoses[slot]);
+    el.classList.toggle('active', activePoseSlot === slot);
+  });
+  const badge = document.getElementById('poseBadge');
+  badge.textContent = activePoseSlot ? ` · pose ${activePoseSlot}` : '';
+}
+
+async function saveCurrentPoseToSlot(slot) {
+  if (!currentVrm) return;
+  const pose = captureCurrentPose();
+  savedPoses[slot] = pose;
+  refreshPoseSlotsUI();
+  try { await savePoseData(slot, pose); } catch (e) { console.warn('ポーズの保存に失敗しました', e); }
+}
+
+function loadPoseIntoEditor(slot) {
+  const pose = savedPoses[slot];
+  if (!pose || !currentVrm) return;
+  applyPoseToBones(pose);
+  refreshSlidersFromBones();
+}
+
+function applyPoseInViewMode(slot) {
+  if (!currentVrm || !savedPoses[slot]) return;
+  applyPoseToBones(savedPoses[slot]);
+  activePoseSlot = slot;
+  refreshPoseSlotsUI();
+}
+
+function clearActivePose() {
+  activePoseSlot = null;
+  refreshPoseSlotsUI();
+}
+
+function openPoseEditor() {
+  if (!currentVrm) return;
+  poseEditorOpen = true;
+  document.getElementById('poseEditor').classList.add('open');
+  refreshSlidersFromBones();
+}
+function closePoseEditor() {
+  poseEditorOpen = false;
+  document.getElementById('poseEditor').classList.remove('open');
+}
+function togglePoseEditor() {
+  if (poseEditorOpen) closePoseEditor(); else openPoseEditor();
+}
+
+buildPoseEditorUI();
+buildPoseSlotsUI();
+document.getElementById('peSlots').addEventListener('click', (e) => {
+  const el = e.target.closest('.pe-slot');
+  if (!el) return;
+  const slot = Number(el.dataset.slot);
+  if (e.shiftKey) {
+    saveCurrentPoseToSlot(slot);
+  } else {
+    loadPoseIntoEditor(slot);
+  }
+});
+
+window.addEventListener('keydown', (e) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' && document.activeElement.type !== 'range') return;
+
+  if (e.key === 'p' || e.key === 'P') {
+    togglePoseEditor();
+    return;
+  }
+  if (e.key >= '1' && e.key <= '9') {
+    const slot = Number(e.key);
+    if (poseEditorOpen) {
+      if (e.shiftKey) saveCurrentPoseToSlot(slot);
+      else loadPoseIntoEditor(slot);
+    } else {
+      if (activePoseSlot === slot) clearActivePose();
+      else applyPoseInViewMode(slot);
+    }
+    return;
+  }
+  if (e.key === '0') {
+    clearActivePose();
+    return;
+  }
+  if (e.key === 'Escape' && poseEditorOpen) {
+    closePoseEditor();
+  }
+});
+
+(async () => {
+  try {
+    savedPoses = await loadAllPoseData();
+    refreshPoseSlotsUI();
+  } catch (e) {
+    console.warn('保存済みポーズの読込に失敗しました', e);
+  }
+})();
+
+
 const dropzone = document.getElementById('dropzone');
 const dropbox = document.getElementById('dropbox');
 const fileInput = document.getElementById('fileInput');
@@ -408,7 +721,7 @@ document.getElementById('forgetBtn').addEventListener('click', async () => {
 // ---------- click to hide UI + cursor ----------
 window.addEventListener('click', (e) => {
   // パネルやドロップゾーンなど操作系UI上のクリックはトグル対象外
-  if (e.target.closest('#panel, #topbar, #dropzone, #loading')) return;
+  if (e.target.closest('#panel, #topbar, #dropzone, #loading, #poseEditor')) return;
   document.body.classList.toggle('ui-hidden');
 });
 // 万一操作不能になった場合の保険としてEscでも復帰できるようにする
@@ -478,9 +791,13 @@ function animate() {
       lookAtTarget.position.set(targetX, targetY, headPos.z + 2.5);
     }
 
+    // ポーズ適用中・ポーズエディター編集中は、首/胸/背骨/腰の
+    // アイドル・トラッキング制御をスキップしてポーズを保持する
+    const poseFrozen = activePoseSlot !== null || poseEditorOpen;
+
     // 2. subtle head/neck rotation on top of the eye lookAt (very small, natural range)
     const neck = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Neck);
-    if (neck) {
+    if (neck && !poseFrozen) {
       const targetYaw = mouseSmooth.x * 0.18 * trackStrength;
       const targetPitch = -mouseSmooth.y * 0.12 * trackStrength;
       neck.rotation.y += (targetYaw - neck.rotation.y) * Math.min(1, delta * 5);
@@ -490,24 +807,24 @@ function animate() {
     // 3. upper body twist toward cursor (chest/spine), subtler than the neck
     const chest = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Chest)
       || humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Spine);
-    if (chest) {
+    if (chest && !poseFrozen) {
       const twist = mouseSmooth.x * 0.06 * trackStrength;
       chest.rotation.y += (twist - chest.rotation.y) * Math.min(1, delta * 3);
     }
 
     // 4. breathing idle animation (chest scale + shoulders)
-    if (chest) {
+    if (chest && !poseFrozen) {
       const breathe = Math.sin(t * 1.1) * 0.015 * idleStrength;
       chest.scale.set(1 + breathe * 0.5, 1 + breathe, 1 + breathe * 0.5);
     }
     const spine = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Spine);
-    if (spine) {
+    if (spine && !poseFrozen) {
       spine.rotation.z = Math.sin(t * 1.1 + 1.2) * 0.01 * idleStrength;
     }
 
     // 5. gentle idle sway (weight shift) via hips
     const hips = humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Hips);
-    if (hips) {
+    if (hips && !poseFrozen) {
       hips.rotation.z = Math.sin(t * 0.6) * 0.008 * idleStrength;
     }
 
