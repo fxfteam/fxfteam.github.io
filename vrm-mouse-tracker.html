@@ -328,10 +328,10 @@ function applyNaturalPose(vrm) {
   const rightLowerArm = humanoid.getNormalizedBoneNode(VRMHumanBoneName.RightLowerArm);
 
   // 数値(ラジアン)は見た目に応じて調整可。z軸回転で腕を体側へ下ろす。
-  if (leftUpperArm) leftUpperArm.rotation.z = 1.15;
-  if (rightUpperArm) rightUpperArm.rotation.z = -1.15;
-  if (leftLowerArm) leftLowerArm.rotation.z = 0.15;
-  if (rightLowerArm) rightLowerArm.rotation.z = -0.15;
+  if (leftUpperArm) leftUpperArm.rotation.z = -1.15;
+  if (rightUpperArm) rightUpperArm.rotation.z = 1.15;
+  if (leftLowerArm) leftLowerArm.rotation.z = -0.15;
+  if (rightLowerArm) rightLowerArm.rotation.z = 0.15;
 }
 
 function setLoading(on) {
