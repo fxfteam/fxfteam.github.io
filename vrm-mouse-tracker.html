@@ -182,6 +182,17 @@
     width: 4px; height: 4px; border-radius: 50%; background: var(--accent);
   }
   #poseEditor .pe-slot.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  #poseEditor .pe-presets {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px;
+  }
+  #poseEditor .pe-preset-btn {
+    font-size: 10px; padding: 5px 8px;
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-dim); cursor: pointer; background: transparent;
+    font-family: inherit;
+  }
+  #poseEditor .pe-preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+  #poseEditor .pe-preset-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
   #poseEditor .pe-body { flex: 1; overflow-y: auto; padding: 4px 12px 16px; }
   #poseEditor .pe-group-title {
     font-size: 10px; color: var(--text-dim); text-transform: uppercase;
@@ -230,8 +241,9 @@
 <div id="poseEditor">
   <div class="pe-header">
     <div class="pe-title">POSE EDITOR</div>
-    <div class="pe-hint">1-9: このエディター内では保存済みポーズを読込<br>Shift+1-9: 現在の姿勢をその番号に保存<br>P / Esc: 閉じる</div>
+    <div class="pe-hint">1-9: このエディター内では保存済みポーズを読込<br>Shift+1-9: 現在の姿勢をその番号に保存<br>下のプリセットは即適用/読込<br>P / Esc: 閉じる</div>
     <div class="pe-slots" id="peSlots"></div>
+    <div class="pe-presets" id="pePresets"></div>
   </div>
   <div class="pe-body" id="peBody"></div>
 </div>
@@ -568,9 +580,79 @@ function refreshPoseSlotsUI() {
     el.classList.toggle('filled', !!savedPoses[slot]);
     el.classList.toggle('active', activePoseSlot === slot);
   });
+  document.querySelectorAll('#pePresets .pe-preset-btn').forEach(el => {
+    el.classList.toggle('active', activePoseSlot === `preset:${el.dataset.preset}`);
+  });
   const badge = document.getElementById('poseBadge');
-  badge.textContent = activePoseSlot ? ` · pose ${activePoseSlot}` : '';
+  if (typeof activePoseSlot === 'number') badge.textContent = ` · pose ${activePoseSlot}`;
+  else if (typeof activePoseSlot === 'string') badge.textContent = ` · pose: ${activePoseSlot.replace('preset:', '')}`;
+  else badge.textContent = '';
 }
+
+// ---------- built-in preset poses ----------
+// 数値はラジアン。モデルの体格差で見え方が変わるので、あくまで出発点として
+// 用意している。ポーズエディターを開くとスライダーで微調整できる。
+const POSE_PRESETS = {
+  natural: {
+    LeftUpperArm: { x: 0, y: 0, z: -1.15 }, RightUpperArm: { x: 0, y: 0, z: 1.15 },
+    LeftLowerArm: { x: 0, y: 0, z: -0.15 }, RightLowerArm: { x: 0, y: 0, z: 0.15 },
+  },
+  wave: {
+    LeftUpperArm: { x: 0, y: 0, z: -1.15 }, LeftLowerArm: { x: 0, y: 0, z: -0.15 },
+    RightUpperArm: { x: -0.3, y: 0.1, z: 0.25 }, RightLowerArm: { x: 0, y: 0.2, z: 1.7 },
+    RightHand: { x: 0, y: 0, z: 0.3 },
+  },
+  peace: {
+    LeftUpperArm: { x: 0, y: 0, z: -1.15 }, LeftLowerArm: { x: 0, y: 0, z: -0.15 },
+    RightUpperArm: { x: -0.5, y: 0.15, z: 0.15 }, RightLowerArm: { x: 0, y: 0.3, z: 2.1 },
+    RightHand: { x: 0, y: 0, z: 0.1 },
+  },
+  crossed: {
+    LeftUpperArm: { x: -0.25, y: -0.2, z: -0.75 }, LeftLowerArm: { x: 0, y: -1.3, z: -0.3 },
+    RightUpperArm: { x: -0.25, y: 0.2, z: 0.75 }, RightLowerArm: { x: 0, y: 1.3, z: 0.3 },
+  },
+  hips: {
+    LeftUpperArm: { x: 0, y: 0, z: -0.95 }, LeftLowerArm: { x: 0, y: -1.5, z: -0.1 },
+    RightUpperArm: { x: 0, y: 0, z: 0.95 }, RightLowerArm: { x: 0, y: 1.5, z: 0.1 },
+  },
+  salute: {
+    LeftUpperArm: { x: 0, y: 0, z: -1.15 }, LeftLowerArm: { x: 0, y: 0, z: -0.15 },
+    RightUpperArm: { x: -0.15, y: 0.1, z: 0.5 }, RightLowerArm: { x: 0, y: 0.1, z: 1.9 },
+    RightHand: { x: 0.2, y: 0, z: 0 },
+    Head: { x: 0, y: 0, z: 0 },
+  },
+};
+const PRESET_LABELS = { natural: 'Natural', wave: 'Wave', peace: 'Peace', crossed: 'Crossed', hips: 'Hips', salute: 'Salute' };
+
+function buildPresetsUI() {
+  const container = document.getElementById('pePresets');
+  container.innerHTML = '';
+  for (const key of Object.keys(POSE_PRESETS)) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pe-preset-btn';
+    btn.dataset.preset = key;
+    btn.textContent = PRESET_LABELS[key] || key;
+    container.appendChild(btn);
+  }
+}
+
+function applyPresetPose(name) {
+  if (!currentVrm || !POSE_PRESETS[name]) return;
+  applyPoseToBones(POSE_PRESETS[name]);
+  if (poseEditorOpen) {
+    refreshSlidersFromBones();
+  } else {
+    activePoseSlot = `preset:${name}`;
+  }
+  refreshPoseSlotsUI();
+}
+
+document.getElementById('pePresets').addEventListener('click', (e) => {
+  const el = e.target.closest('.pe-preset-btn');
+  if (!el) return;
+  applyPresetPose(el.dataset.preset);
+});
 
 async function saveCurrentPoseToSlot(slot) {
   if (!currentVrm) return;
@@ -615,6 +697,7 @@ function togglePoseEditor() {
 
 buildPoseEditorUI();
 buildPoseSlotsUI();
+buildPresetsUI();
 document.getElementById('peSlots').addEventListener('click', (e) => {
   const el = e.target.closest('.pe-slot');
   if (!el) return;
